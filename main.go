@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-const Version = "v2.0.0"
+const Version = "v1.0.0"
 
 type Result struct {
 	URL        string
