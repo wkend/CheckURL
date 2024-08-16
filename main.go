@@ -389,7 +389,6 @@ func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibl
     </style>
 </head>
 <body>
-    <h1>URL Check Results</h1>
     ` + summaryHTML + `
     <table>
         <tr>
