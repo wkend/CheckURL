@@ -21,6 +21,8 @@ import (
 	"time"
 )
 
+const Version = "v2.0.0"
+
 type Result struct {
 	URL        string
 	Title      string
@@ -30,6 +32,9 @@ type Result struct {
 }
 
 func main() {
+
+	fmt.Printf("URL Checker version %s\n", Version)
+
 	// 定义命令行标志
 	urlFile := flag.String("file", "", "Path to the file containing URLs")
 	concurrency := flag.Int("concurrency", 4, "Number of concurrent workers")

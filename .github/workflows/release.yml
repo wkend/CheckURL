@@ -42,7 +42,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref_name }}  # 使用 github.ref_name 而不是 github.ref
+          tag_name: ${{ github.ref_name }}  #使用 github.ref_name 而不是 github.ref
           release_name: Release ${{ github.ref_name }}
           body: ${{ steps.changelog.outputs.changelog }}
           draft: false
