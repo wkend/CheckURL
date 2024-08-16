@@ -38,9 +38,23 @@ func main() {
 	// 定义命令行标志
 	urlFile := flag.String("file", "", "Path to the file containing URLs")
 	concurrency := flag.Int("concurrency", 4, "Number of concurrent workers")
+	help := flag.Bool("help", false, "Show help information")
 
 	// 解析命令行参数
 	flag.Parse()
+
+	// 如果指定了 -help 参数，显示帮助信息并退出
+	if *help {
+		printHelp()
+		os.Exit(0)
+	}
+
+	// 检查是否提供了文件路径
+	if *urlFile == "" {
+		fmt.Println("Please provide a file path using the -file flag")
+		printHelp()
+		os.Exit(1)
+	}
 
 	// 检查是否提供了文件路径
 	if *urlFile == "" {
@@ -82,6 +96,26 @@ func main() {
 	// 清理 Chrome 进程
 	cleanupChrome()
 }
+
+func printHelp() {
+	fmt.Printf("URL Checker %s - A tool for checking the accessibility of multiple URLs\n\n", Version)
+	fmt.Println("Usage: checkurl [options]")
+	fmt.Println("\nOptions:")
+	fmt.Println("  -file string")
+	fmt.Println("        Path to the file containing URLs (required)")
+	fmt.Println("  -concurrency int")
+	fmt.Println("        Number of concurrent workers (default 4)")
+	fmt.Println("  -help")
+	fmt.Println("        Show this help information")
+	fmt.Println("\nExample:")
+	fmt.Println("  checkurl -file urls.txt -concurrency 8")
+	fmt.Println("\nDescription:")
+	fmt.Println("  This tool reads a list of URLs from a file, checks their accessibility,")
+	fmt.Println("  captures screenshots, and generates an HTML report with the results.")
+	fmt.Println("  The report includes the URL, title, status code, and screenshot for each accessible URL,")
+	fmt.Println("  as well as a list of inaccessible URLs.")
+}
+
 func readURLsFromFile(filename string) ([]string, error) {
 	// 读取文件内容
 	content, err := os.ReadFile(filename)
