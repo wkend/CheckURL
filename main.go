@@ -309,7 +309,18 @@ func checkURL(url string) bool {
 }
 
 func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibleURLs int) {
-	htmlTemplate := `
+	log.Printf("Generating report with: Total URLs: %d, Accessible: %d, Inaccessible: %d", totalURLs, accessibleURLs, inaccessibleURLs)
+
+	summaryHTML := fmt.Sprintf(`
+    <div class="summary">
+        <h2>汇总信息</h2>
+        <p>总 URL 数: %d</p>
+        <p>可访问 URL 数: %d</p>
+        <p>无法访问 URL 数: %d</p>
+    </div>
+    `, totalURLs, accessibleURLs, inaccessibleURLs)
+
+	htmlContent := `
 <!DOCTYPE html>
 <html>
 <head>
@@ -365,12 +376,7 @@ func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibl
 </head>
 <body>
     <h1>URL Check Results</h1>
-    <div class="summary">
-        <h2>汇总信息</h2>
-        <p>总 URL 数: %d</p>
-        <p>可访问 URL 数: %d</p>
-        <p>无法访问 URL 数: %d</p>
-    </div>
+    ` + summaryHTML + `
     <table>
         <tr>
             <th>序号</th>
@@ -380,9 +386,6 @@ func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibl
             <th>截图</th>
         </tr>
 `
-
-	// 使用正确的参数格式化 HTML 模板
-	htmlContent := fmt.Sprintf(htmlTemplate, totalURLs, accessibleURLs, inaccessibleURLs)
 
 	var inaccessibleURLsList []string
 	accessibleCount := 0
