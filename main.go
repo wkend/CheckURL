@@ -334,12 +334,14 @@ func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibl
         table {
             border-collapse: collapse;
             width: 100%;
+            table-layout: auto;
         }
         th, td {
             border: 1px solid #ddd;
             padding: 8px;
             text-align: left;
             vertical-align: top;
+            word-wrap: break-word;
         }
         th {
             background-color: #f2f2f2;
@@ -372,6 +374,18 @@ func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibl
             margin-bottom: 20px;
             border-radius: 5px;
         }
+        .url-column {
+            width: 30%;
+        }
+        .title-column {
+            width: 30%;
+        }
+        .status-column {
+            width: 10%;
+        }
+        .screenshot-column {
+            width: 30%;
+        }
     </style>
 </head>
 <body>
@@ -380,10 +394,10 @@ func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibl
     <table>
         <tr>
             <th>序号</th>
-            <th>URL</th>
-            <th>标题</th>
-            <th>状态码</th>
-            <th>截图</th>
+            <th class="url-column">URL</th>
+            <th class="title-column">标题</th>
+            <th class="status-column">状态码</th>
+            <th class="screenshot-column">截图</th>
         </tr>
 `
 
@@ -402,10 +416,10 @@ func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibl
 			htmlContent += fmt.Sprintf(`
         <tr>
             <td>%d</td>
-            <td><a href="%s" target="_blank">%s</a></td>
-            <td>%s</td>
-            <td>%d</td>
-            <td>
+            <td class="url-column"><a href="%s" target="_blank">%s</a></td>
+            <td class="title-column">%s</td>
+            <td class="status-column">%d</td>
+            <td class="screenshot-column">
                 %s
             </td>
         </tr>
