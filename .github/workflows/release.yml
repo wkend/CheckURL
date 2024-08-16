@@ -12,12 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4.0.0
         with:
           fetch-depth: 0  # 获取所有历史记录，用于生成完整的更新日志
 
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5.0.0
         with:
           go-version: '1.19'  # 使用你的项目所需的 Go 版本
 
