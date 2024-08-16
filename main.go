@@ -52,24 +52,31 @@ func main() {
 
 	// 处理 URLs
 	results := processURLsConcurrently(urls, *concurrency)
-	generateHTMLReport(results)
 
-	// 打印汇总信息
-	inaccessibleCount := 0
+	// 计算汇总信息
+	totalURLs := len(results)
+	accessibleURLs := 0
+	inaccessibleURLs := 0
 	for _, result := range results {
-		if !result.Accessible {
-			inaccessibleCount++
+		if result.StatusCode != -1 {
+			accessibleURLs++
+		} else {
+			inaccessibleURLs++
 		}
 	}
+
+	// 打印汇总信息到控制台
 	fmt.Printf("\n汇总信息:\n")
-	fmt.Printf("总 URL 数: %d\n", len(results))
-	fmt.Printf("可访问 URL 数: %d\n", len(results)-inaccessibleCount)
-	fmt.Printf("无法访问 URL 数: %d\n", inaccessibleCount)
+	fmt.Printf("总 URL 数: %d\n", totalURLs)
+	fmt.Printf("可访问 URL 数: %d\n", accessibleURLs)
+	fmt.Printf("无法访问 URL 数: %d\n", inaccessibleURLs)
+
+	// 生成 HTML 报告，传入汇总信息
+	generateHTMLReport(results, totalURLs, accessibleURLs, inaccessibleURLs)
 
 	// 清理 Chrome 进程
 	cleanupChrome()
 }
-
 func readURLsFromFile(filename string) ([]string, error) {
 	// 读取文件内容
 	content, err := os.ReadFile(filename)
@@ -177,14 +184,14 @@ func processURL(url string) Result {
 	if err != nil {
 		log.Printf("HTTP request failed for %s: %v", url, err)
 		result.StatusCode = -1
-		result.Accessible = false
-		fmt.Printf("无法访问的 URL: %s\n", url) // 在控制台打印信息
-	} else {
-		result.StatusCode = resp.StatusCode
-		result.URL = resp.Request.URL.String()
-		resp.Body.Close()
+		return result // 直接返回，不进行后续处理
 	}
+	defer resp.Body.Close()
 
+	result.StatusCode = resp.StatusCode
+	result.URL = resp.Request.URL.String()
+
+	// 只有当 URL 可访问时，才进行截图和标题获取
 	// 创建新的Chrome实例
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("ignore-certificate-errors", true),
@@ -199,7 +206,7 @@ func processURL(url string) Result {
 	ctx, cancel := chromedp.NewContext(allocCtx)
 	defer cancel()
 
-	ctx, cancel = context.WithTimeout(ctx, 120*time.Second) // 增加超时时间到120秒
+	ctx, cancel = context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	var buf []byte
@@ -230,16 +237,6 @@ func processURL(url string) Result {
 	)
 	if err != nil {
 		log.Printf("Failed to capture screenshot or title for %s: %v", url, err)
-		// 尝试再次捕获截图，但这次不等待页面完全加载
-		err = chromedp.Run(ctx,
-			chromedp.CaptureScreenshot(&buf),
-			chromedp.Title(&title),
-		)
-		if err != nil {
-			log.Printf("Failed to capture screenshot or title for %s: %v", url, err)
-			result.Accessible = false
-			fmt.Printf("无法获取截图或标题的 URL: %s\n", url) // 在控制台打印信息
-		}
 	}
 
 	if len(buf) > 0 {
@@ -248,12 +245,6 @@ func processURL(url string) Result {
 		log.Printf("Screenshot captured for %s. Size: %d bytes", url, len(buf))
 	} else {
 		log.Printf("Screenshot buffer is empty for %s", url)
-		result.Screenshot = "" // 确保设置为空字符串，而不是nil
-	}
-
-	// 确保Chrome实例被关闭
-	if err := chromedp.Cancel(ctx); err != nil {
-		log.Printf("Error closing Chrome for %s: %v", url, err)
 	}
 
 	return result
@@ -317,8 +308,8 @@ func checkURL(url string) bool {
 	return resp.StatusCode < 400
 }
 
-func generateHTMLReport(results []Result) {
-	htmlContent := `
+func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibleURLs int) {
+	htmlTemplate := `
 <!DOCTYPE html>
 <html>
 <head>
@@ -364,13 +355,22 @@ func generateHTMLReport(results []Result) {
             max-height: 90%;
             object-fit: contain;
         }
-        .inaccessible {
-            background-color: #ffcccc;
+        .summary {
+            background-color: #e6f3ff;
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 5px;
         }
     </style>
 </head>
 <body>
     <h1>URL Check Results</h1>
+    <div class="summary">
+        <h2>汇总信息</h2>
+        <p>总 URL 数: %d</p>
+        <p>可访问 URL 数: %d</p>
+        <p>无法访问 URL 数: %d</p>
+    </div>
     <table>
         <tr>
             <th>序号</th>
@@ -381,23 +381,23 @@ func generateHTMLReport(results []Result) {
         </tr>
 `
 
-	var inaccessibleURLs []string
-	for i, result := range results {
-		var screenshotHTML string
-		if result.Screenshot != "" {
-			screenshotHTML = fmt.Sprintf(`<img class="screenshot" src="data:image/png;base64,%s" alt="Screenshot" onclick="showFullscreen(this)">`, result.Screenshot)
-		} else {
-			screenshotHTML = "No screenshot available"
-		}
+	// 使用正确的参数格式化 HTML 模板
+	htmlContent := fmt.Sprintf(htmlTemplate, totalURLs, accessibleURLs, inaccessibleURLs)
 
-		rowClass := ""
-		if !result.Accessible {
-			rowClass = ` class="inaccessible"`
-			inaccessibleURLs = append(inaccessibleURLs, result.URL)
-		}
+	var inaccessibleURLsList []string
+	accessibleCount := 0
+	for _, result := range results {
+		if result.StatusCode != -1 {
+			accessibleCount++
+			var screenshotHTML string
+			if result.Screenshot != "" {
+				screenshotHTML = fmt.Sprintf(`<img class="screenshot" src="data:image/png;base64,%s" alt="Screenshot" onclick="showFullscreen(this)">`, result.Screenshot)
+			} else {
+				screenshotHTML = "No screenshot available"
+			}
 
-		htmlContent += fmt.Sprintf(`
-        <tr%s>
+			htmlContent += fmt.Sprintf(`
+        <tr>
             <td>%d</td>
             <td><a href="%s" target="_blank">%s</a></td>
             <td>%s</td>
@@ -406,7 +406,10 @@ func generateHTMLReport(results []Result) {
                 %s
             </td>
         </tr>
-`, rowClass, i+1, result.URL, result.URL, result.Title, result.StatusCode, screenshotHTML)
+`, accessibleCount, result.URL, result.URL, result.Title, result.StatusCode, screenshotHTML)
+		} else {
+			inaccessibleURLsList = append(inaccessibleURLsList, result.URL)
+		}
 	}
 
 	htmlContent += `
@@ -414,16 +417,16 @@ func generateHTMLReport(results []Result) {
 `
 
 	// 添加无法访问的 URL 列表
-	if len(inaccessibleURLs) > 0 {
+	if len(inaccessibleURLsList) > 0 {
 		htmlContent += `
     <h2>无法访问的 URL 列表</h2>
-    <ul>
+    <ol>
 `
-		for _, url := range inaccessibleURLs {
+		for _, url := range inaccessibleURLsList {
 			htmlContent += fmt.Sprintf("        <li>%s</li>\n", url)
 		}
 		htmlContent += `
-    </ul>
+    </ol>
 `
 	}
 
@@ -449,7 +452,6 @@ func generateHTMLReport(results []Result) {
 	}
 
 	fmt.Println("Results saved to results.html")
-	fmt.Printf("Total URLs: %d, Inaccessible URLs: %d\n", len(results), len(inaccessibleURLs))
 }
 
 func cleanupChrome() {
