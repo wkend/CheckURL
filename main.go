@@ -345,7 +345,7 @@ func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibl
             background-color: #f2f2f2;
         }
         .screenshot {
-            max-width: 100%;
+            max-width: 50%;
             height: auto;
             cursor: pointer;
         }
