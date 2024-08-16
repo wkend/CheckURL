@@ -409,7 +409,7 @@ func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibl
 			if result.Screenshot != "" {
 				screenshotHTML = fmt.Sprintf(`<img class="screenshot" src="data:image/png;base64,%s" alt="Screenshot" onclick="showFullscreen(this)">`, result.Screenshot)
 			} else {
-				screenshotHTML = "No screenshot available"
+				screenshotHTML = "No screenshot available..."
 			}
 
 			htmlContent += fmt.Sprintf(`
