@@ -116,6 +116,10 @@ func printHelp() {
 	fmt.Println("  captures screenshots, and generates an HTML report with the results.")
 	fmt.Println("  The report includes the URL, title, status code, and screenshot for each accessible URL,")
 	fmt.Println("  as well as a list of inaccessible URLs.")
+	fmt.Println("  -timeout duration")
+	fmt.Println("        Timeout for each URL (default 180s)")
+	fmt.Println("  -max-retries int")
+	fmt.Println("        Maximum number of retries for each URL (default 3)")
 }
 
 func readURLsFromFile(filename string) ([]string, error) {
