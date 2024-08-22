@@ -293,6 +293,24 @@ func processURL(url string) Result {
 	return result
 }
 
+func waitForPageStable(ctx context.Context) error {
+	return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+		var lastHeight int
+		for i := 0; i < 10; i++ { // 尝试 10 次
+			var height int
+			if err := chromedp.Evaluate(`document.body.scrollHeight`, &height).Do(ctx); err != nil {
+				return err
+			}
+			if height == lastHeight {
+				return nil // 页面高度稳定，认为加载完成
+			}
+			lastHeight = height
+			time.Sleep(500 * time.Millisecond)
+		}
+		return nil
+	}))
+}
+
 func waitForPageLoad(ctx context.Context) error {
 	return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
 		_, exp, err := runtime.Evaluate(`
