@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-const Version = "v1.0.1"
+const Version = "v2.1.1"
 
 type Result struct {
 	URL           string
@@ -229,7 +229,6 @@ func processURLWithRetry(url string, maxRetries int, timeout time.Duration) Resu
 
 func processURL(url string, timeout time.Duration) Result {
 	result := Result{OriginalURL: url}
-
 	url = ensureProtocol(url)
 
 	// 获取状态码
@@ -252,6 +251,15 @@ func processURL(url string, timeout time.Duration) Result {
 
 	result.StatusCode = resp.StatusCode
 	result.URL = resp.Request.URL.String()
+	// 移除可能添加的尾部斜杠，以进行更准确的比较
+	originalURLWithoutSlash := strings.TrimSuffix(result.OriginalURL, "/")
+	finalURLWithoutSlash := strings.TrimSuffix(result.URL, "/")
+
+	// 比较去除协议和尾部斜杠后的 URL
+	result.WasRedirected = !strings.EqualFold(
+		strings.TrimPrefix(strings.TrimPrefix(originalURLWithoutSlash, "http://"), "https://"),
+		strings.TrimPrefix(strings.TrimPrefix(finalURLWithoutSlash, "http://"), "https://"),
+	)
 	result.WasRedirected = (result.URL != result.OriginalURL)
 
 	// 只有当 URL 可访问时，才进行截图和标题获取
@@ -349,27 +357,34 @@ func waitForPageStable(ctx context.Context) error {
 }
 
 func ensureProtocol(url string) string {
-	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
-		return url
+	url = strings.TrimSpace(url)
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		// 尝试 HTTPS
+		httpsURL := "https://" + url
+		if checkURL(httpsURL) {
+			url = httpsURL
+		} else {
+			// 如果 HTTPS 失败，尝试 HTTP
+			httpURL := "http://" + url
+			if checkURL(httpURL) {
+				url = httpURL
+			}
+		}
 	}
 
-	// 尝试 HTTPS
-	httpsURL := "https://" + url
-	if checkURL(httpsURL) {
-		return httpsURL
+	// 如果 URL 不以斜杠结尾，添加斜杠
+	if !strings.HasSuffix(url, "/") {
+		url += "/"
 	}
 
-	// 如果 HTTPS 失败，尝试 HTTP
-	httpURL := "http://" + url
-	if checkURL(httpURL) {
-		return httpURL
-	}
-
-	// 如果两者都失败，返回原始 URL
 	return url
 }
 
 func checkURL(url string) bool {
+	if !strings.HasSuffix(url, "/") {
+		url += "/"
+	}
+
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
