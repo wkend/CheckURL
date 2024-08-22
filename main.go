@@ -21,18 +21,19 @@ import (
 	"time"
 )
 
-const Version = "v1.0.0"
+const Version = "v1.0.1"
 
 type Result struct {
-	URL        string
-	Title      string
-	StatusCode int
-	Screenshot string
-	Accessible bool
+	URL           string
+	OriginalURL   string
+	Title         string
+	StatusCode    int
+	Screenshot    string
+	Accessible    bool
+	WasRedirected bool
 }
 
 func main() {
-
 	fmt.Printf("URL Checker version %s\n", Version)
 
 	// 定义命令行标志
@@ -58,13 +59,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 检查是否提供了文件路径
-	if *urlFile == "" {
-		fmt.Println("Please provide a file path using the -file flag")
-		flag.PrintDefaults()
-		os.Exit(1)
-	}
-
 	// 读取 URLs
 	urls, err := readURLsFromFile(*urlFile)
 	if err != nil {
@@ -78,9 +72,13 @@ func main() {
 	totalURLs := len(results)
 	accessibleURLs := 0
 	inaccessibleURLs := 0
+	redirectedURLs := 0
 	for _, result := range results {
 		if result.StatusCode != -1 {
 			accessibleURLs++
+			if result.WasRedirected {
+				redirectedURLs++
+			}
 		} else {
 			inaccessibleURLs++
 		}
@@ -91,9 +89,10 @@ func main() {
 	fmt.Printf("总 URL 数: %d\n", totalURLs)
 	fmt.Printf("可访问 URL 数: %d\n", accessibleURLs)
 	fmt.Printf("无法访问 URL 数: %d\n", inaccessibleURLs)
+	fmt.Printf("发生重定向的 URL 数: %d\n", redirectedURLs)
 
 	// 生成 HTML 报告，传入汇总信息
-	generateHTMLReport(results, totalURLs, accessibleURLs, inaccessibleURLs)
+	generateHTMLReport(results, totalURLs, accessibleURLs, inaccessibleURLs, redirectedURLs)
 
 	// 清理 Chrome 进程
 	cleanupChrome()
@@ -107,19 +106,21 @@ func printHelp() {
 	fmt.Println("        Path to the file containing URLs (required)")
 	fmt.Println("  -concurrency int")
 	fmt.Println("        Number of concurrent workers (default 4)")
+	fmt.Println("  -timeout duration")
+	fmt.Println("        Timeout for each URL (default 180s)")
+	fmt.Println("  -max-retries int")
+	fmt.Println("        Maximum number of retries for each URL (default 3)")
 	fmt.Println("  -help")
 	fmt.Println("        Show this help information")
 	fmt.Println("\nExample:")
-	fmt.Println("  checkurl -file urls.txt -concurrency 8")
+	fmt.Println("  checkurl -file urls.txt -concurrency 8 -timeout 240s -max-retries 5")
 	fmt.Println("\nDescription:")
 	fmt.Println("  This tool reads a list of URLs from a file, checks their accessibility,")
 	fmt.Println("  captures screenshots, and generates an HTML report with the results.")
 	fmt.Println("  The report includes the URL, title, status code, and screenshot for each accessible URL,")
 	fmt.Println("  as well as a list of inaccessible URLs.")
-	fmt.Println("  -timeout duration")
-	fmt.Println("        Timeout for each URL (default 180s)")
-	fmt.Println("  -max-retries int")
-	fmt.Println("        Maximum number of retries for each URL (default 3)")
+	fmt.Println("  This tool handles URL redirects automatically.")
+	fmt.Println("  The final URL after any redirects will be reported in the results.")
 }
 
 func readURLsFromFile(filename string) ([]string, error) {
@@ -194,7 +195,7 @@ func processURLsConcurrently(urls []string, concurrency int, timeout time.Durati
 		go func(url string) {
 			defer wg.Done()
 			semaphore <- struct{}{} // 获取信号量
-			result := processURL(url)
+			result := processURLWithRetry(url, maxRetries, timeout)
 			resultsChan <- result
 			<-semaphore // 释放信号量
 		}(url)
@@ -213,16 +214,32 @@ func processURLsConcurrently(urls []string, concurrency int, timeout time.Durati
 	return results
 }
 
-func processURL(url string) Result {
-	result := Result{URL: url}
+func processURLWithRetry(url string, maxRetries int, timeout time.Duration) Result {
+	var result Result
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		result = processURL(url, timeout)
+		if result.StatusCode != -1 && result.Screenshot != "" {
+			return result
+		}
+		log.Printf("Attempt %d failed for %s, retrying...", attempt, url)
+		time.Sleep(time.Duration(attempt) * time.Second)
+	}
+	return result
+}
+
+func processURL(url string, timeout time.Duration) Result {
+	result := Result{OriginalURL: url}
 
 	url = ensureProtocol(url)
 
 	// 获取状态码
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: timeout,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return nil // 允许所有重定向
 		},
 	}
 	resp, err := client.Get(url)
@@ -235,6 +252,7 @@ func processURL(url string) Result {
 
 	result.StatusCode = resp.StatusCode
 	result.URL = resp.Request.URL.String()
+	result.WasRedirected = (result.URL != result.OriginalURL)
 
 	// 只有当 URL 可访问时，才进行截图和标题获取
 	// 创建新的Chrome实例
@@ -251,11 +269,12 @@ func processURL(url string) Result {
 	ctx, cancel := chromedp.NewContext(allocCtx)
 	defer cancel()
 
-	ctx, cancel = context.WithTimeout(ctx, 180*time.Second)
+	ctx, cancel = context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	var buf []byte
 	var title string
+	var finalURL string
 	err = chromedp.Run(ctx,
 		chromedp.EmulateViewport(1280, 1024),
 		network.Enable(),
@@ -267,26 +286,16 @@ func processURL(url string) Result {
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return waitForPageStable(ctx)
 		}),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			// 尝试关闭可能的弹窗
-			_ = chromedp.Run(ctx, chromedp.Evaluate(`
-                var closeButtons = document.querySelectorAll('button, [role="button"]');
-                for (var i = 0; i < closeButtons.length; i++) {
-                    if (closeButtons[i].textContent.toLowerCase().includes('close') || 
-                        (closeButtons[i].getAttribute('aria-label') && closeButtons[i].getAttribute('aria-label').toLowerCase().includes('close'))) {
-                        closeButtons[i].click();
-                        break;
-                    }
-                }
-            `, nil))
-			return nil
-		}),
+		chromedp.Location(&finalURL),
 		chromedp.CaptureScreenshot(&buf),
 		chromedp.Title(&title),
 	)
 	if err != nil {
 		log.Printf("Failed to capture screenshot or title for %s: %v", url, err)
 	}
+
+	result.URL = finalURL
+	result.WasRedirected = (result.URL != result.OriginalURL)
 
 	if len(buf) > 0 {
 		result.Screenshot = base64.StdEncoding.EncodeToString(buf)
@@ -297,24 +306,6 @@ func processURL(url string) Result {
 	}
 
 	return result
-}
-
-func waitForPageStable(ctx context.Context) error {
-	return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
-		var lastHeight int
-		for i := 0; i < 10; i++ { // 尝试 10 次
-			var height int
-			if err := chromedp.Evaluate(`document.body.scrollHeight`, &height).Do(ctx); err != nil {
-				return err
-			}
-			if height == lastHeight {
-				return nil // 页面高度稳定，认为加载完成
-			}
-			lastHeight = height
-			time.Sleep(500 * time.Millisecond)
-		}
-		return nil
-	}))
 }
 
 func waitForPageLoad(ctx context.Context) error {
@@ -339,17 +330,22 @@ func waitForPageLoad(ctx context.Context) error {
 	}))
 }
 
-func processURLWithRetry(url string, maxRetries int) Result {
-	var result Result
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		result = processURL(url)
-		if result.StatusCode != -1 && result.Screenshot != "" {
-			return result
+func waitForPageStable(ctx context.Context) error {
+	return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+		var lastHeight int
+		for i := 0; i < 10; i++ { // 尝试 10 次
+			var height int
+			if err := chromedp.Evaluate(`document.body.scrollHeight`, &height).Do(ctx); err != nil {
+				return err
+			}
+			if height == lastHeight {
+				return nil // 页面高度稳定，认为加载完成
+			}
+			lastHeight = height
+			time.Sleep(500 * time.Millisecond)
 		}
-		log.Printf("Attempt %d failed for %s, retrying...", attempt, url)
-		time.Sleep(time.Duration(attempt) * time.Second)
-	}
-	return result
+		return nil
+	}))
 }
 
 func ensureProtocol(url string) string {
@@ -388,8 +384,8 @@ func checkURL(url string) bool {
 	return resp.StatusCode < 400
 }
 
-func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibleURLs int) {
-	log.Printf("Generating report with: Total URLs: %d, Accessible: %d, Inaccessible: %d", totalURLs, accessibleURLs, inaccessibleURLs)
+func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibleURLs, redirectedURLs int) {
+	log.Printf("Generating report with: Total URLs: %d, Accessible: %d, Inaccessible: %d, Redirected: %d", totalURLs, accessibleURLs, inaccessibleURLs, redirectedURLs)
 
 	summaryHTML := fmt.Sprintf(`
     <div class="summary">
@@ -397,8 +393,9 @@ func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibl
         <p>总 URL 数: %d</p>
         <p>可访问 URL 数: %d</p>
         <p>无法访问 URL 数: %d</p>
+        <p>发生重定向的 URL 数: %d</p>
     </div>
-    `, totalURLs, accessibleURLs, inaccessibleURLs)
+    `, totalURLs, accessibleURLs, inaccessibleURLs, redirectedURLs)
 
 	htmlContent := `
 <!DOCTYPE html>
@@ -466,6 +463,9 @@ func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibl
         .screenshot-column {
             width: 30%;
         }
+        .redirected {
+            color: orange;
+        }
     </style>
 </head>
 <body>
@@ -492,19 +492,27 @@ func generateHTMLReport(results []Result, totalURLs, accessibleURLs, inaccessibl
 				screenshotHTML = "No screenshot available..."
 			}
 
+			redirectInfo := ""
+			if result.WasRedirected {
+				redirectInfo = fmt.Sprintf(`<br><span class="redirected">Redirected to: %s</span>`, result.URL)
+			}
+
 			htmlContent += fmt.Sprintf(`
         <tr>
             <td>%d</td>
-            <td class="url-column"><a href="%s" target="_blank">%s</a></td>
+            <td class="url-column">
+                <a href="%s" target="_blank">%s</a>
+                %s
+            </td>
             <td class="title-column">%s</td>
             <td class="status-column">%d</td>
             <td class="screenshot-column">
                 %s
             </td>
         </tr>
-`, accessibleCount, result.URL, result.URL, result.Title, result.StatusCode, screenshotHTML)
+`, accessibleCount, result.URL, result.OriginalURL, redirectInfo, result.Title, result.StatusCode, screenshotHTML)
 		} else {
-			inaccessibleURLsList = append(inaccessibleURLsList, result.URL)
+			inaccessibleURLsList = append(inaccessibleURLsList, result.OriginalURL)
 		}
 	}
 
