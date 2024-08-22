@@ -245,7 +245,7 @@ func processURL(url string) Result {
 	ctx, cancel := chromedp.NewContext(allocCtx)
 	defer cancel()
 
-	ctx, cancel = context.WithTimeout(ctx, 120*time.Second)
+	ctx, cancel = context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
 
 	var buf []byte
@@ -309,6 +309,19 @@ func waitForPageLoad(ctx context.Context) error {
 		}
 		return nil
 	}))
+}
+
+func processURLWithRetry(url string, maxRetries int) Result {
+	var result Result
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		result = processURL(url)
+		if result.StatusCode != -1 && result.Screenshot != "" {
+			return result
+		}
+		log.Printf("Attempt %d failed for %s, retrying...", attempt, url)
+		time.Sleep(time.Duration(attempt) * time.Second)
+	}
+	return result
 }
 
 func ensureProtocol(url string) string {
