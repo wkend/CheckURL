@@ -39,6 +39,8 @@ func main() {
 	urlFile := flag.String("file", "", "Path to the file containing URLs")
 	concurrency := flag.Int("concurrency", 4, "Number of concurrent workers")
 	help := flag.Bool("help", false, "Show help information")
+	timeout := flag.Duration("timeout", 180*time.Second, "Timeout for each URL")
+	maxRetries := flag.Int("max-retries", 3, "Maximum number of retries for each URL")
 
 	// 解析命令行参数
 	flag.Parse()
@@ -70,7 +72,7 @@ func main() {
 	}
 
 	// 处理 URLs
-	results := processURLsConcurrently(urls, *concurrency)
+	results := processURLsConcurrently(urls, *concurrency, *timeout, *maxRetries)
 
 	// 计算汇总信息
 	totalURLs := len(results)
@@ -176,7 +178,7 @@ func convertToUTF8(content []byte) ([]byte, error) {
 	return content, nil
 }
 
-func processURLsConcurrently(urls []string, concurrency int) []Result {
+func processURLsConcurrently(urls []string, concurrency int, timeout time.Duration, maxRetries int) []Result {
 	resultsChan := make(chan Result, len(urls))
 	var wg sync.WaitGroup
 
