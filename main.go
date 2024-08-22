@@ -257,6 +257,10 @@ func processURL(url string) Result {
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			return waitForPageLoad(ctx)
 		}),
+		chromedp.Sleep(5*time.Second), // 添加额外的等待时间
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return waitForPageStable(ctx)
+		}),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			// 尝试关闭可能的弹窗
 			_ = chromedp.Run(ctx, chromedp.Evaluate(`
